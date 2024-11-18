@@ -1,0 +1,46 @@
+# Ignora el entorno virtual
+venv/
+.env/
+.envrc
+
+# Archivos de configuración y caché de PyCharm
+.idea/
+*.iml
+
+# Archivos de configuración de Visual Studio Code (si usas VS Code)
+.vscode/
+
+# Archivos de Python compilados
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Archivos de logs
+*.log
+
+# Ignora dependencias instaladas en archivos de biblioteca
+site-packages/
+
+# Bases de datos y archivos generados localmente
+*.sqlite3
+*.db
+
+# Ignora archivos de configuración de Docker
+*.env
+docker-compose.override.yml
+
+# Archivos de sistema (macOS, Windows)
+.DS_Store
+Thumbs.db
+
+# Ignora archivos de entorno y configuraciones específicas
+
+*.env.*
+
+# Archivos de cache y configuraciones temporales de Python
+*.pyo
+*.pyd
+.Python
+
+# Librerías descargadas
+pip-log.txt
