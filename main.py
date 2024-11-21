@@ -22,11 +22,11 @@ else:
     print(f"Archivo Haarcascade disponible en {HAAR_PATH}")
 
 # Configuración inicial
-FILTERS = ["original", "blur", "edges", "brighten", "hue", "saturation"]
+FILTERS = ["Original", "Blur", "Edges", "Brighten", "Hue", "Saturation"]
 COLOR_BOUNDS = {
-    "rojo": [(0, 120, 70), (10, 255, 255)],
-    "verde": [(36, 100, 100), (86, 255, 255)],
-    "azul": [(94, 80, 2), (126, 255, 255)],
+    "Rojo": [(0, 120, 70), (10, 255, 255)],
+    "Verde": [(36, 100, 100), (86, 255, 255)],
+    "Azul": [(94, 80, 2), (126, 255, 255)],
 }
 
 # Variables globales
@@ -35,6 +35,7 @@ hue_value = 0
 saturation_scale = 1.0
 brightness_scale = 1.0
 paused = False
+last_gesture = None
 
 def detect_gesture(hand_landmarks):
     """
@@ -47,16 +48,16 @@ def detect_gesture(hand_landmarks):
     thumb_index_dist = abs(thumb_tip.x - index_tip.x)
 
     if thumb_index_dist < 0.03:  # Pulgar e índice juntos
-        return "thumbs_up"
+        return "Pulgar Arriba"
     elif thumb_tip.y < index_tip.y:  # Pulgar arriba
-        return "change_filter"
+        return "Cambiar Filtro"
     elif thumb_tip.y > index_tip.y:  # Pulgar abajo
-        return "pause_resume"
+        return "Pausar/Reanudar"
 
     return None
 
 def process_video_with_gestures():
-    global current_filter, hue_value, saturation_scale, brightness_scale, paused
+    global current_filter, hue_value, saturation_scale, brightness_scale, paused, last_gesture
 
     cap = cv2.VideoCapture(1)
     if not cap.isOpened():
@@ -75,6 +76,8 @@ def process_video_with_gestures():
         # Procesar la detección de manos
         result = hands.process(rgb_frame)
 
+        gesture_text = "Sin Gestos Detectados"
+
         if result.multi_hand_landmarks:
             for hand_landmarks in result.multi_hand_landmarks:
                 mp_drawing.draw_landmarks(
@@ -83,25 +86,34 @@ def process_video_with_gestures():
 
                 # Detectar gesto
                 gesture = detect_gesture(hand_landmarks)
-                if gesture == "change_filter" and not paused:
-                    current_filter = (current_filter + 1) % len(FILTERS)
-                    print(f"Filtro actual: {FILTERS[current_filter]}")
-                elif gesture == "pause_resume":
-                    paused = not paused
-                    print("Video pausado" if paused else "Video reanudado")
+                if gesture:
+                    gesture_text = f"Gesto: {gesture}"
+                    last_gesture = gesture
+                    if gesture == "Cambiar Filtro" and not paused:
+                        current_filter = (current_filter + 1) % len(FILTERS)
+                        print(f"Filtro actual: {FILTERS[current_filter]}")
+                    elif gesture == "Pausar/Reanudar":
+                        paused = not paused
+                        print("Video pausado" if paused else "Video reanudado")
 
         # Aplicar filtro actual
         if not paused:
-            if FILTERS[current_filter] == "blur":
+            if FILTERS[current_filter] == "Blur":
                 frame = apply_blur(frame)
-            elif FILTERS[current_filter] == "edges":
+            elif FILTERS[current_filter] == "Edges":
                 frame = apply_edges(frame)
-            elif FILTERS[current_filter] == "brighten":
+            elif FILTERS[current_filter] == "Brighten":
                 frame = apply_brightness(frame)
-            elif FILTERS[current_filter] == "hue":
+            elif FILTERS[current_filter] == "Hue":
                 frame = change_hue(frame, hue_value)
-            elif FILTERS[current_filter] == "saturation":
+            elif FILTERS[current_filter] == "Saturation":
                 frame = adjust_saturation(frame, saturation_scale)
+
+        # Mostrar el filtro activo y gesto detectado
+        cv2.putText(frame, f"Filtro Activo: {FILTERS[current_filter]}", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+        cv2.putText(frame, gesture_text, (10, 70),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2, cv2.LINE_AA)
 
         # Mostrar resultado
         cv2.imshow("Procesamiento en Tiempo Real con Gestos", frame)
@@ -112,26 +124,6 @@ def process_video_with_gestures():
 
     cap.release()
     cv2.destroyAllWindows()
-
-def update_filter(filter_index):
-    global current_filter
-    current_filter = filter_index
-
-def update_hue(value):
-    global hue_value
-    hue_value = int(value)
-
-def update_saturation(value):
-    global saturation_scale
-    saturation_scale = float(value)
-
-def update_brightness(value):
-    global brightness_scale
-    brightness_scale = float(value)
-
-def toggle_pause():
-    global paused
-    paused = not paused
 
 def create_gui():
     root = tk.Tk()
