@@ -1,4 +1,5 @@
 import cv2
+import mediapipe as mp
 import tkinter as tk
 from tkinter import ttk
 from detectores.hear_detectors import detect_objects
@@ -6,6 +7,11 @@ from detectores.hsv_segmenter import segment_by_color
 from utils.filters import apply_blur, apply_edges, apply_brightness
 from utils.colors_mods import change_hue, adjust_saturation
 import os
+
+# MediaPipe Hands
+mp_hands = mp.solutions.hands
+mp_drawing = mp.solutions.drawing_utils
+hands = mp_hands.Hands(min_detection_confidence=0.7, min_tracking_confidence=0.7)
 
 # Ruta al archivo Haarcascade
 HAAR_PATH = "utils/haarcascade_frontalface_default.xml"
@@ -30,66 +36,79 @@ saturation_scale = 1.0
 brightness_scale = 1.0
 paused = False
 
-def process_video_main_thread():
+def detect_gesture(hand_landmarks):
+    """
+    Detecta gestos simples de la mano basados en la posición de los puntos clave.
+    """
+    thumb_tip = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
+    index_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
+
+    # Distancia entre pulgar e índice (gesto de "pulgar arriba")
+    thumb_index_dist = abs(thumb_tip.x - index_tip.x)
+
+    if thumb_index_dist < 0.03:  # Pulgar e índice juntos
+        return "thumbs_up"
+    elif thumb_tip.y < index_tip.y:  # Pulgar arriba
+        return "change_filter"
+    elif thumb_tip.y > index_tip.y:  # Pulgar abajo
+        return "pause_resume"
+
+    return None
+
+def process_video_with_gestures():
     global current_filter, hue_value, saturation_scale, brightness_scale, paused
 
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(1)
     if not cap.isOpened():
         print("Error al abrir la cámara")
         return
 
     while True:
-        if paused:
-            cv2.waitKey(1)
-            continue
-
         ret, frame = cap.read()
         if not ret:
             print("Error al capturar el cuadro de video")
             break
 
-        try:
-            # Detección de objetos
-            frame = detect_objects(frame, HAAR_PATH)
+        # Convertir la imagen a RGB para MediaPipe
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-            # Procesar para cada color definido
-            for color_name, (lower, upper) in COLOR_BOUNDS.items():
-                segmented_frame = segment_by_color(frame, lower, upper)
+        # Procesar la detección de manos
+        result = hands.process(rgb_frame)
 
-                if segmented_frame is None or segmented_frame.size == 0:
-                    print(f"Segmentación fallida para el color {color_name}")
-                    continue
+        if result.multi_hand_landmarks:
+            for hand_landmarks in result.multi_hand_landmarks:
+                mp_drawing.draw_landmarks(
+                    frame, hand_landmarks, mp_hands.HAND_CONNECTIONS
+                )
 
-                # Aplicar filtro actual
-                if FILTERS[current_filter] == "blur":
-                    segmented_frame = apply_blur(segmented_frame)
-                elif FILTERS[current_filter] == "edges":
-                    segmented_frame = apply_edges(segmented_frame)
-                elif FILTERS[current_filter] == "brighten":
-                    segmented_frame = apply_brightness(segmented_frame, alpha=brightness_scale)
-                elif FILTERS[current_filter] == "hue":
-                    segmented_frame = change_hue(segmented_frame, hue_value)
-                elif FILTERS[current_filter] == "saturation":
-                    segmented_frame = adjust_saturation(segmented_frame, saturation_scale)
+                # Detectar gesto
+                gesture = detect_gesture(hand_landmarks)
+                if gesture == "change_filter" and not paused:
+                    current_filter = (current_filter + 1) % len(FILTERS)
+                    print(f"Filtro actual: {FILTERS[current_filter]}")
+                elif gesture == "pause_resume":
+                    paused = not paused
+                    print("Video pausado" if paused else "Video reanudado")
 
-                # Mostrar resultados segmentados
-                try:
-                    cv2.imshow(f"Segmentación {color_name}", segmented_frame)
-                except cv2.error as e:
-                    print(f"Error al mostrar la ventana de segmentación {color_name}: {e}")
+        # Aplicar filtro actual
+        if not paused:
+            if FILTERS[current_filter] == "blur":
+                frame = apply_blur(frame)
+            elif FILTERS[current_filter] == "edges":
+                frame = apply_edges(frame)
+            elif FILTERS[current_filter] == "brighten":
+                frame = apply_brightness(frame)
+            elif FILTERS[current_filter] == "hue":
+                frame = change_hue(frame, hue_value)
+            elif FILTERS[current_filter] == "saturation":
+                frame = adjust_saturation(frame, saturation_scale)
 
-            # Mostrar resultado combinado
-            cv2.imshow("Procesamiento en Tiempo Real", frame)
-
-        except Exception as e:
-            print(f"Error en el procesamiento del video: {e}")
+        # Mostrar resultado
+        cv2.imshow("Procesamiento en Tiempo Real con Gestos", frame)
 
         # Salir con 'q'
-        try:
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-        except cv2.error as e:
-            print(f"Error en cv2.waitKey: {e}")
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
     cap.release()
     cv2.destroyAllWindows()
@@ -116,33 +135,11 @@ def toggle_pause():
 
 def create_gui():
     root = tk.Tk()
-    root.title("Control de Filtros - Procesamiento de Imágenes")
+    root.title("Control de Filtros con Gestos - Procesamiento de Imágenes")
     root.geometry("400x500")
 
-    # Etiqueta principal
-    ttk.Label(root, text="Seleccione un filtro:").pack(pady=10)
-
-    # Dropdown para seleccionar filtro
-    filter_combo = ttk.Combobox(root, values=FILTERS, state="readonly")
-    filter_combo.pack()
-    filter_combo.bind("<<ComboboxSelected>>", lambda e: update_filter(filter_combo.current()))
-
-    # Sliders para ajuste de hue, saturación y brillo
-    ttk.Label(root, text="Ajustar Tonalidad (Hue):").pack(pady=10)
-    hue_slider = tk.Scale(root, from_=0, to=180, orient="horizontal", command=update_hue)
-    hue_slider.pack()
-
-    ttk.Label(root, text="Ajustar Saturación:").pack(pady=10)
-    saturation_slider = tk.Scale(root, from_=0.5, to=2.0, resolution=0.1, orient="horizontal", command=update_saturation)
-    saturation_slider.pack()
-
-    ttk.Label(root, text="Ajustar Brillo:").pack(pady=10)
-    brightness_slider = tk.Scale(root, from_=0.5, to=2.0, resolution=0.1, orient="horizontal", command=update_brightness)
-    brightness_slider.pack()
-
     # Botones de control
-    ttk.Button(root, text="Iniciar Video", command=process_video_main_thread).pack(pady=10)
-    ttk.Button(root, text="Pausar/Reanudar", command=toggle_pause).pack(pady=10)
+    ttk.Button(root, text="Iniciar Video con Gestos", command=process_video_with_gestures).pack(pady=10)
 
     # Botón para salir
     ttk.Button(root, text="Salir", command=root.quit).pack(pady=10)
