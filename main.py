@@ -2,18 +2,16 @@ import cv2
 import mediapipe as mp
 import tkinter as tk
 from tkinter import ttk
-from detectores.hear_detectors import detect_objects
-from detectores.hsv_segmenter import segment_by_color
 from utils.filters import apply_blur, apply_edges, apply_brightness
 from utils.colors_mods import change_hue, adjust_saturation
 import os
 
-# MediaPipe Hands
+# MediaPipe Hands Configuration
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 hands = mp_hands.Hands(min_detection_confidence=0.7, min_tracking_confidence=0.7)
 
-# Ruta al archivo Haarcascade
+# Haarcascade Path
 HAAR_PATH = "utils/haarcascade_frontalface_default.xml"
 
 if not os.path.exists(HAAR_PATH):
@@ -21,7 +19,7 @@ if not os.path.exists(HAAR_PATH):
 else:
     print(f"Archivo Haarcascade disponible en {HAAR_PATH}")
 
-# Configuración inicial
+# Filters and Color Bounds
 FILTERS = ["Original", "Blur", "Median Blur", "Canny Edges", "Laplacian", "Brighten", "Hue", "Saturation"]
 COLOR_BOUNDS = {
     "Rojo": [(0, 120, 70), (10, 255, 255)],
@@ -29,7 +27,7 @@ COLOR_BOUNDS = {
     "Azul": [(94, 80, 2), (126, 255, 255)],
 }
 
-# Variables globales
+# Global Variables
 current_filter = 0
 hue_value = 0
 saturation_scale = 1.0
@@ -37,22 +35,20 @@ brightness_scale = 1.0
 paused = False
 last_gesture = None
 
+# Utility Function: Apply Custom Filters
 def apply_custom_filters(frame, filter_type):
-    """
-    Aplica un filtro personalizado basado en el tipo seleccionado.
-    """
     if filter_type == "Median Blur":
         return cv2.medianBlur(frame, 5)
     elif filter_type == "Canny Edges":
         return cv2.Canny(frame, 100, 200)
     elif filter_type == "Laplacian":
-        return cv2.Laplacian(frame, cv2.CV_64F)
+        return cv2.convertScaleAbs(cv2.Laplacian(frame, cv2.CV_64F))
     return frame
-# Definir la función detect_gesture
+
+# Gesture Detection Functions
 def detect_gesture(hand_landmarks):
     thumb_tip = hand_landmarks.landmark[mp.solutions.hands.HandLandmark.THUMB_TIP]
     index_tip = hand_landmarks.landmark[mp.solutions.hands.HandLandmark.INDEX_FINGER_TIP]
-
     thumb_index_dist = abs(thumb_tip.x - index_tip.x)
 
     if thumb_index_dist < 0.03:
@@ -61,13 +57,28 @@ def detect_gesture(hand_landmarks):
         return "Cambiar Filtro"
     elif thumb_tip.y > index_tip.y:
         return "Pausar/Reanudar"
-
     return None
 
+def detect_open_hand(hand_landmarks):
+    fingers_extended = [
+        hand_landmarks.landmark[mp.solutions.hands.HandLandmark.THUMB_TIP].y <
+        hand_landmarks.landmark[mp.solutions.hands.HandLandmark.THUMB_IP].y,
+        hand_landmarks.landmark[mp.solutions.hands.HandLandmark.INDEX_FINGER_TIP].y <
+        hand_landmarks.landmark[mp.solutions.hands.HandLandmark.INDEX_FINGER_DIP].y,
+        hand_landmarks.landmark[mp.solutions.hands.HandLandmark.MIDDLE_FINGER_TIP].y <
+        hand_landmarks.landmark[mp.solutions.hands.HandLandmark.MIDDLE_FINGER_DIP].y,
+        hand_landmarks.landmark[mp.solutions.hands.HandLandmark.RING_FINGER_TIP].y <
+        hand_landmarks.landmark[mp.solutions.hands.HandLandmark.RING_FINGER_DIP].y,
+        hand_landmarks.landmark[mp.solutions.hands.HandLandmark.PINKY_TIP].y <
+        hand_landmarks.landmark[mp.solutions.hands.HandLandmark.PINKY_DIP].y,
+    ]
+    return all(fingers_extended)
+
+# Video Processing with Gesture Control
 def process_video_with_gestures():
     global current_filter, hue_value, saturation_scale, brightness_scale, paused, last_gesture
 
-    cap = cv2.VideoCapture(1)
+    cap = cv2.VideoCapture(1)  # Camera index (change to 1 if needed)
     if not cap.isOpened():
         print("Error al abrir la cámara")
         return
@@ -78,21 +89,17 @@ def process_video_with_gestures():
             print("Error al capturar el cuadro de video")
             break
 
-        # Convertir la imagen a RGB para MediaPipe
+        # Convert frame to RGB for MediaPipe
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-        # Procesar la detección de manos
+        # Detect hand landmarks
         result = hands.process(rgb_frame)
-
         gesture_text = "Sin Gestos Detectados"
 
         if result.multi_hand_landmarks:
             for hand_landmarks in result.multi_hand_landmarks:
-                mp_drawing.draw_landmarks(
-                    frame, hand_landmarks, mp_hands.HAND_CONNECTIONS
-                )
+                mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
-                # Detectar gesto
                 gesture = detect_gesture(hand_landmarks)
                 if gesture:
                     gesture_text = f"Gesto: {gesture}"
@@ -104,7 +111,7 @@ def process_video_with_gestures():
                         paused = not paused
                         print("Video pausado" if paused else "Video reanudado")
 
-        # Aplicar filtro actual
+        # Apply the current filter if not paused
         if not paused:
             if FILTERS[current_filter] == "Blur":
                 frame = apply_blur(frame)
@@ -117,22 +124,23 @@ def process_video_with_gestures():
             else:
                 frame = apply_custom_filters(frame, FILTERS[current_filter])
 
-        # Mostrar el filtro activo y gesto detectado
+        # Display filter and gesture
         cv2.putText(frame, f"Filtro Activo: {FILTERS[current_filter]}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
         cv2.putText(frame, gesture_text, (10, 70),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2, cv2.LINE_AA)
 
-        # Mostrar resultado
+        # Show video
         cv2.imshow("Procesamiento en Tiempo Real con Gestos", frame)
 
-        # Salir con 'q'
+        # Exit on 'q'
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
     cap.release()
     cv2.destroyAllWindows()
 
+# GUI Functions
 def update_filter(filter_index):
     global current_filter
     current_filter = filter_index
@@ -153,18 +161,19 @@ def toggle_pause():
     global paused
     paused = not paused
 
+# Create GUI
 def create_gui():
     root = tk.Tk()
     root.title("Control de Filtros con Gestos - Procesamiento de Imágenes")
     root.geometry("400x500")
 
-    # Dropdown para seleccionar filtro
+    # Dropdown to select filter
     ttk.Label(root, text="Seleccione un filtro:").pack(pady=10)
     filter_combo = ttk.Combobox(root, values=FILTERS, state="readonly")
     filter_combo.pack()
     filter_combo.bind("<<ComboboxSelected>>", lambda e: update_filter(filter_combo.current()))
 
-    # Sliders para ajuste de hue, saturación y brillo
+    # Sliders for adjustments
     ttk.Label(root, text="Ajustar Tonalidad (Hue):").pack(pady=10)
     hue_slider = tk.Scale(root, from_=0, to=180, orient="horizontal", command=update_hue)
     hue_slider.pack()
@@ -177,11 +186,9 @@ def create_gui():
     brightness_slider = tk.Scale(root, from_=0.5, to=2.0, resolution=0.1, orient="horizontal", command=update_brightness)
     brightness_slider.pack()
 
-    # Botones de control
+    # Buttons
     ttk.Button(root, text="Iniciar Video con Gestos", command=process_video_with_gestures).pack(pady=10)
     ttk.Button(root, text="Pausar/Reanudar", command=toggle_pause).pack(pady=10)
-
-    # Botón para salir
     ttk.Button(root, text="Salir", command=root.quit).pack(pady=10)
 
     root.mainloop()
